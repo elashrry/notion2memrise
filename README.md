@@ -13,9 +13,9 @@ We use their API to query the database. An extra piece of information we get fro
 
 
 ### TODO:
-- [x] get the database via API
-- [x] create a pandas dataframe from the database
-- [x] clean the dataframe
+- [x] ~~get the database via API~~
+- [x] ~~create a pandas dataframe from the database~~
+- [x] ~~clean the dataframe~~
 - [ ] testing modules for the above
 
 ### Memrise

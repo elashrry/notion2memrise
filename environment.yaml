@@ -1,0 +1,15 @@
+name: notion2memrise
+channels:
+  - defaults
+dependencies:
+  - selenium
+  - requests
+  - pandas
+  - python=3.9
+  - ipykernel
+  - beautifulsoup4
+  - lxml
+variables:
+  NOTION_SECRET: 
+  MEMRISE_EMAIL: 
+  MEMRISE_PASSWORD: 

@@ -3,6 +3,24 @@
 I am using [Notion](https://www.notion.so/) to create a database of words I want to learn in a foreign language, and I am using [Memrise](https://www.memrise.com/) to learn them through their scientific time-spaced memorization algorithm.
 This project is a way to automate the process of creating a course on Memrise from a database on Notion.
 
+Why not just use Memrise directly?  
+Notion is easier to use and had more features. For example, I can add much more notes to a single word on Notion including embedding videos to how to use it, for example.
+
+# How to use
+
+1. On Notion: Create a database. It must contain at least three columns: one for the language you want to learn, one for the language you already know, say, French and English, and one for the last modified data named `date modified`.
+2. On Memrise:  
+    a. Create a course (follow these [instructions]()). 
+    b. Convert the course into complex mode by simply adding another level to the course, so you have two empty levels.
+    c. (optional if you want to add more columns to the course) Go to the database tab of the course, and click on the automatically created one, and add more columns.  
+    d. save changes (in the levels tab).
+<p align="center">
+  <img src="./images/add_level.png" width="30%" />
+  <img src="./images/open_db.png" width="30%" /> 
+  <img src="./images/add_column_db.png" width="30%" />
+</p>
+3. Clone this repository...
+
 # How does it work
 ### Notion
 The database on Notion would look like:
@@ -16,16 +34,21 @@ We use their API to query the database. An extra piece of information we get fro
 - [x] ~~get the database via API~~
 - [x] ~~create a pandas dataframe from the database~~
 - [x] ~~clean the dataframe~~
+- [ ] handle duplicates in the notion database
 - [ ] testing modules for the above
 
 ### Memrise
 Memrise does not offer an API, so I went to the old goody Selenium to control the course. Therefore, this solution won't scale well, but it does the job for me.
 ### TODO:
 Do I work with the levels page or the database page
-- [ ] function to create a course on memrise with complex view.
-- 
+- [x] get all words from memrise.
+- [ ] handle words deleted from the notion database
+- [ ] handle words that already exist but have been modified
+- [ ] add words to the course
+- [ ] testing modules for the above
 
 # Requirements
+- create a Notion integration in your workspace. Follow these [instructions](https://developers.notion.com/docs/create-a-notion-integration).
 - Python libraries are defined in `environment.yaml`. 
 - You will need to define your own variable:
 `NOTION_SECRET`, `MEMRISE_EMAIL`, `MEMRISE_PASSWORD` in in the `environment.yaml` file.
@@ -37,16 +60,15 @@ and activate it with
 ```
 conda activate notion2memrise
 ``` 
-
 - You will also need a driver for Selenium (e.g. [`geckodriver`](https://firefox-source-docs.mozilla.org/testing/geckodriver/Support.html) for Firefox or [`ChromeDriver`](https://chromedriver.chromium.org/getting-started) for Chrome ). I am using FireFox in this project.
 
 # Testing 
-- [ ] write a function to create a testing course on memrise
-- [ ] create testing modules to test the code
-- [ ] (?) ability to run the testing modules before each edit to the course (because of dependency on selenium and page structure of memrise)
+
+Well... this is important, but in the meantime, I would rather spend my time learning French :) ... but I will come back to it.
 
 # Limitations
-- If you deleted an entry in the notion database, I don't have a way to delete it in the memrise course. You have to do it manually. I could do that by checking cell id from memrise against the ids from notion.
+- Many will come as I use the code more and more.
 
 # improvements
+- Function to create the course on Memrise in complex mode.
 - Is it possible to convert these scripts to a Notion integration?

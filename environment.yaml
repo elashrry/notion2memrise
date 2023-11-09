@@ -10,6 +10,6 @@ dependencies:
   - beautifulsoup4
   - lxml
 variables:
-  NOTION_SECRET: 
+  NOTION_SECRET:  # Notion API secret
   MEMRISE_EMAIL: 
   MEMRISE_PASSWORD: 

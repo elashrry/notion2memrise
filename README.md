@@ -18,8 +18,11 @@ Notion is easier to use and had more features. For example, I can add much more 
   <img src="./images/add_level.png" width="30%" />
   <img src="./images/open_db.png" width="30%" /> 
   <img src="./images/add_column_db.png" width="30%" />
-</p>
-3. Clone this repository...
+</p>  
+
+3. Clone this repository
+4. Follow the [requirements](#requirements) section below
+5. Run `python notion2memrise.py` from the root directory.
 
 # How does it work
 ### Notion
@@ -35,6 +38,7 @@ We use their API to query the database. An extra piece of information we get fro
 - [x] ~~create a pandas dataframe from the database~~
 - [x] ~~clean the dataframe~~
 - [ ] handle duplicates in the notion database
+- [ ] reorganise the constants in the code
 - [ ] testing modules for the above
 
 ### Memrise
@@ -45,6 +49,7 @@ Do I work with the levels page or the database page
 - [ ] handle words deleted from the notion database
 - [ ] handle words that already exist but have been modified
 - [ ] add words to the course
+- [ ] reorganise the constants in the code
 - [ ] testing modules for the above
 
 # Requirements

@@ -10,9 +10,9 @@ Notion is easier to use and had more features. For example, I can add much more 
 
 1. On Notion: Create a database. It must contain at least three columns: one for the language you want to learn, one for the language you already know, say, French and English, and one for the last modified data named `date modified`.
 2. On Memrise:  
-    a. Create a course (follow these [instructions]()). 
-    b. Convert the course into complex mode by simply adding another level to the course, so you have two empty levels.
-    c. (optional if you want to add more columns to the course) Go to the database tab of the course, and click on the automatically created one, and add more columns.  
+    a. Create a course (follow these [instructions](https://memrise.zendesk.com/hc/en-us/articles/360015973338-How-can-I-create-a-course-make-a-learning-list-)).   
+    b. Convert the course into complex mode by simply adding another level to the course, so you have two empty levels.  
+    c. (optional if you want to add more columns to the course) Go to the database tab of the course, and click on the automatically created one, and add more columns.    
     d. save changes (in the levels tab).
 <p align="center">
   <img src="./images/add_level.png" width="30%" />

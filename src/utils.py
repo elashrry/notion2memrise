@@ -1,10 +1,10 @@
 """Utility functions."""
 
-from typing import Union
+from typing import Union, List
 import pandas as pd
 
 
-def semi_join(df1:pd.DataFrame, df2:pd.DataFrame, on:Union(str, list)):
+def semi_join(df1:pd.DataFrame, df2:pd.DataFrame, on:Union[str, List[str]]):
     """Returns the rows of df1 whose values in a certain column (or more) exist on df2.
 
     Note: If the relation df1 to df2 is one-to-many, no duplicates will occur in the 
@@ -26,7 +26,7 @@ def semi_join(df1:pd.DataFrame, df2:pd.DataFrame, on:Union(str, list)):
     return df1_only
 
 
-def anti_join(df1:pd.DataFrame, df2:pd.DataFrame, on:Union(str, list)):
+def anti_join(df1:pd.DataFrame, df2:pd.DataFrame, on:Union[str, List[str]]):
     """Returns the rows of df1 whose values in a certain column (or more) do not exist 
     on df2.
 

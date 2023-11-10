@@ -1,31 +1,29 @@
 """Utility functions to control Memrise account and course."""
 
-from time import sleep
+from io import StringIO
 from typing import List, Literal, Union
 
 import pandas as pd
 from bs4 import BeautifulSoup as bs
-from io import StringIO
-from selenium.webdriver import Firefox, Remote
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver import Firefox, Remote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.remote.webelement import WebElement
 
-from src.constants import MEMRISE_EMAIL, MEMRISE_PASSWORD, COL_LIST
+from src.constants import COL_LIST
 
 # TODO: enforce type checking
 
 FIREFOX_PATH = "/opt/homebrew/bin/geckodriver"
 LOGIN_URL = "https://app.memrise.com/signin"
-# COURSE_EDIT_URL = "https://app.memrise.com/course/6502452/my-french/edit/"
-COURSE_EDIT_URL = "https://app.memrise.com/course/6507300/r/edit/"
 COURSE_EDIT_URL = "https://app.memrise.com/course/6512551/my-french-2/edit/"
 
 EMAIL_ID = "username"
 PASSWORD_ID = "password"
-SUMBIT_XPATH = "//button[@type='submit']"
+SUBMIT_XPATH = "//button[@type='submit']"
 YES_BTN_CLASS = "btn btn-primary btn-yes"
 SAVE_CHANGES_CLASS = "btn btn-success"
 
@@ -52,14 +50,24 @@ def create_driver(headless=True):
     return Firefox(executable_path=FIREFOX_PATH)
 
 
-def sign_in(driver: Remote):
+def sign_in(driver: Remote, email: str, password: str):
+    """Signs in to Memrise using the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        email (str): email of the Memrise account
+        password (str): password of the Memrise account
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after signing in
+    """
     driver.get(LOGIN_URL)
     element = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, EMAIL_ID)))
-    element.send_keys(MEMRISE_EMAIL)
+    element.send_keys(email)
     element = driver.find_element_by_id(PASSWORD_ID)
-    element.send_keys(MEMRISE_PASSWORD)
-    button = driver.find_element_by_xpath(SUMBIT_XPATH)
+    element.send_keys(password)
+    button = driver.find_element_by_xpath(SUBMIT_XPATH)
     button.click()
     # wait  login in. i.e. a button with title "Your account"
     WebDriverWait(driver, TIMEOUT_LIMIT).until(
@@ -70,6 +78,18 @@ def sign_in(driver: Remote):
 
 
 def _validate_input(word_df):
+    """Validates the passed dataframe.
+
+    Make sure that:
+    - all columns exist and in the right order using the COL_LIST constant
+    - Important columns have no nas
+
+    Args:
+        word_df (pandas.DataFrame): dataframe of words to be added to Memrise.
+
+    Returns:
+        pandas.DataFrame: validated dataframe.
+    """
     # all column exist and in the right order
     # French, English, and date modified columns have no nas
     # TODO: to be more verbose about the errors
@@ -78,6 +98,16 @@ def _validate_input(word_df):
     return df_valid
 
 def show_all_level_tables(driver: Remote):
+    """Show all level tables in the edit page.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after showing all level tables
+    """
     show_btn_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
         EC.presence_of_all_elements_located(
             (By.XPATH, "//a[@class='show-hide btn btn-small']")))
@@ -86,13 +116,26 @@ def show_all_level_tables(driver: Remote):
 
     return driver
 
-def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):  
+def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
+    """Deletes words from the Memrise course.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        word_ids (list of str or "ALL"): list of words to be deleted or "ALL" to delete 
+        all words.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after deleting the words
+        pandas.DataFrame: a dataframe with the result of deleting each word
+    """
     # The admin user must be logged in the passed driver.
     driver.get(COURSE_EDIT_URL)
     # wait until the "save changes" appear
     WebDriverWait(driver, TIMEOUT_LIMIT).until(
             EC.element_to_be_clickable((By.XPATH, f"//a[@class='{SAVE_CHANGES_CLASS}']")))
-    
+
     if word_ids == "ALL":
         driver, words_df = get_all_words(driver)
         return delete_words(driver, words_df["word"].tolist())
@@ -146,11 +189,22 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
 
     return driver, res_df
 
-def delete_words_from_db(driver: Remote, words: Union[List[str], Literal["ALL"]]):
+def _delete_words_from_db(driver: Remote, words: Union[List[str], Literal["ALL"]]):
     raise NotImplementedError(
         "Deleting all words from the database is not implemented yet")
 
 def cell_col_to_xpath_predicate(driver: Remote):
+    """Returns a dictionary of column names and their xpath predicates.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after showing all level tables
+        dict: a dictionary of column names and their xpath predicates
+    """
     driver.get(COURSE_EDIT_URL)
     driver = show_all_level_tables(driver)
     # on thead element with class="columns"
@@ -175,6 +229,18 @@ def cell_col_to_xpath_predicate(driver: Remote):
     return driver, column_predicate_dict
 
 def update_words(driver: Remote, word_df: pd.DataFrame):
+    """Updates words in the Memrise course.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        word_df (pandas.DataFrame): dataframe of words to be updated in Memrise.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after updating the words
+        pandas.DataFrame: a dataframe with the result of updating each word
+    """
     word_df = _validate_input(word_df)
     driver, column_predicate_dict = cell_col_to_xpath_predicate(driver)
     driver = show_all_level_tables(driver)
@@ -218,11 +284,22 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
     return driver, res_df
 
 def get_all_words(driver):
+    """Returns all words in the Memrise course.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after showing all level tables
+        pandas.DataFrame: a dataframe with all words in the Memrise course
+    """
     # go to the edit page
     driver.get(COURSE_EDIT_URL)
     # show all tables
     driver = show_all_level_tables(driver)
-    # get all table element woth class="level-things table ui-sortable"
+    # get all table element with class="level-things table ui-sortable"
     table_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
         EC.presence_of_all_elements_located(
             (By.XPATH, "//table[@class='level-things table ui-sortable']")))
@@ -250,9 +327,15 @@ def get_all_words(driver):
     return driver, all_words_df.reset_index(drop=True)
 
 
-def _table_element_to_df(table_element):
-    # selenium.webdriver.firefox.webelement.FirefoxWebElement
-    # to html
+def _table_element_to_df(table_element: WebElement):
+    """Returns a dataframe from a table element.
+
+    Args:
+        table_element (selenium.webdriver.remote.webelement.WebElement): a table element
+
+    Returns:
+        pandas.DataFrame: a dataframe of the table element
+    """
     table_html = table_element.get_attribute('outerHTML')
     soup = bs(table_html, 'html.parser')
 
@@ -323,8 +406,9 @@ def add_words(driver: Remote, word_df: pd.DataFrame):
             EC.element_to_be_clickable((By.XPATH, f"//a[@class='{SAVE_CHANGES_CLASS}']")))
         save_btn.click()
 
-        # wait until the course page load (exit the edit mode): 
+        # wait until the course page load (exit the edit mode):
         # span with class="leaderboard-text"
         WebDriverWait(driver, TIMEOUT_LIMIT).until(
             EC.presence_of_element_located(
                 (By.CLASS_NAME, "leaderboard-text")))
+        

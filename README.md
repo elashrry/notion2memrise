@@ -46,8 +46,8 @@ Memrise does not offer an API, so I went to the old goody Selenium to control th
 ### TODO:
 Do I work with the levels page or the database page
 - [x] get all words from memrise.
-- [ ] handle words deleted from the notion database
-- [ ] handle words that already exist but have been modified
+- [x] handle words deleted from the notion database
+- [x] handle words that already exist but have been modified
 - [ ] add words to the course
 - [ ] reorganise the constants in the code
 - [ ] testing modules for the above
@@ -72,8 +72,10 @@ conda activate notion2memrise
 Well... this is important, but in the meantime, I would rather spend my time learning French :) ... but I will come back to it.
 
 # Limitations
+- Words that get deleted from the levels tab on Memrise will not be deleted from the database on Memrise.
 - Many will come as I use the code more and more.
 
 # improvements
+- Make sure to delete words from database on Memrise as well.
 - Function to create the course on Memrise in complex mode.
 - Is it possible to convert these scripts to a Notion integration?

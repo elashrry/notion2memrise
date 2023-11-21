@@ -9,7 +9,7 @@ import requests
 import pandas as pd
 import numpy as np
 # ? the right way to import from constants ?
-from .constants import COL_LIST
+from src.constants import COL_LIST
 
 NOTION_SECRET = os.environ.get("NOTION_SECRET")
 NOTION_VERSION = "2022-06-28"  # Notion API version from their website
@@ -82,6 +82,10 @@ def handle_response(response):
     for col in new_df:
         if np.all(new_df[col].isna()):  # new_df[col].str will throw an error
             continue
+        # handle the line breakers
+        # if new_df[col].dtype == "object":
+        new_df[col] = new_df[col].str.replace(r"\\n+", "", regex=True)
+        new_df[col] = new_df[col].str.replace(r"\s+", " ", regex=True)
         new_df[col] = new_df[col].str.strip()
     for col in DATE_COL_LIST:
         new_df[col] = pd.to_datetime(new_df[col])

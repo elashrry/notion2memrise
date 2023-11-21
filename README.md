@@ -22,7 +22,8 @@ Notion is easier to use and had more features. For example, I can add much more 
 
 3. Clone this repository
 4. Follow the [requirements](#requirements) section below
-5. Run `python notion2memrise.py` from the root directory.
+5. Change the constants in `src/constants`.
+6. Run `python notion2memrise.py` from the root directory.
 
 # How does it work
 ### Notion
@@ -37,7 +38,7 @@ We use their API to query the database. An extra piece of information we get fro
 - [x] ~~get the database via API~~
 - [x] ~~create a pandas dataframe from the database~~
 - [x] ~~clean the dataframe~~
-- [ ] handle duplicates in the notion database
+- [x] ~~handle duplicates in the notion database~~
 - [ ] reorganise the constants in the code
 - [ ] testing modules for the above
 
@@ -45,10 +46,10 @@ We use their API to query the database. An extra piece of information we get fro
 Memrise does not offer an API, so I went to the old goody Selenium to control the course. Therefore, this solution won't scale well, but it does the job for me.
 ### TODO:
 Do I work with the levels page or the database page
-- [x] get all words from memrise.
-- [x] handle words deleted from the notion database
-- [x] handle words that already exist but have been modified
-- [ ] add words to the course
+- [x] ~~get all words from memrise.~~
+- [x] ~~handle words deleted from the notion database~~
+- [x] ~~handle words that already exist but have been modified~~
+- [x] ~~add words to the course~~
 - [ ] reorganise the constants in the code
 - [ ] testing modules for the above
 
@@ -76,6 +77,7 @@ Well... this is important, but in the meantime, I would rather spend my time lea
 - Many will come as I use the code more and more.
 
 # improvements
+- Get pronunciation of words from WordReference to Memrise.
 - Make sure to delete words from database on Memrise as well.
 - Function to create the course on Memrise in complex mode.
 - Is it possible to convert these scripts to a Notion integration?

@@ -1,11 +1,13 @@
 """Utility functions to control Memrise account and course."""
 
 from io import StringIO
+from time import sleep
 from typing import List, Literal, Union
 
 import pandas as pd
+import numpy as np
 from bs4 import BeautifulSoup as bs
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver import Firefox, Remote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
@@ -13,25 +15,30 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.remote.webelement import WebElement
 
-from src.constants import COL_LIST
+from src.constants import (
+    COL_LIST, NOT_NULL_COL_LIST, COURSE_EDIT_URL,
+    DB_NAME, LEVEL_WORD_LIMIT, COURSE_DB_URL)
 
 # TODO: enforce type checking
 
 FIREFOX_PATH = "/opt/homebrew/bin/geckodriver"
+TIMEOUT_LIMIT = 10  # in seconds
+WORD_SEARCH_TIME_OUT = 5  # in seconds
 LOGIN_URL = "https://app.memrise.com/signin"
-COURSE_EDIT_URL = "https://app.memrise.com/course/6512551/my-french-2/edit/"
-
 EMAIL_ID = "username"
 PASSWORD_ID = "password"
 SUBMIT_XPATH = "//button[@type='submit']"
 YES_BTN_CLASS = "btn btn-primary btn-yes"
 SAVE_CHANGES_CLASS = "btn btn-success"
-
-TIMEOUT_LIMIT = 5  # in seconds
-
-# columns that should not have nas
-NOT_NULL_COL_LIST = ["French", "English", "date modified", "cell id"]
-
+MODAL_BACKDROP_CLASS = "modal-backdrop fade"
+YES_NO_MODAL_ID = "modal-yesno"
+UPDATE_CELL_JAVA_SCRIPT = """
+var element = arguments[0];
+var value = arguments[1];
+element.textContent = value;
+var event = new KeyboardEvent('keydown', {'key':'Enter'});
+element.dispatchEvent(event);
+"""
 
 def create_driver(headless=True):
     """Creates a Firefox webdriver from Selenium
@@ -76,6 +83,48 @@ def sign_in(driver: Remote, email: str, password: str):
 
     return driver
 
+def agree_to_cookies(driver: Remote):
+    """Agrees to cookies.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after agreeing to cookies
+    """
+    driver.get(COURSE_EDIT_URL)
+    # wait until the cookies dialogue appears
+    agree_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.presence_of_element_located(
+            (By.XPATH, "//a[contains(text(),'I agree')]")))
+    agree_btn.click()
+
+    return driver
+
+def click_save_changes(driver: Remote):
+    """Clicks on the save changes button.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after clicking on save changes
+    """
+    # The admin user must be logged in the passed driver.
+    driver.get(COURSE_EDIT_URL)
+    # wait until the "save changes" appear
+    save_changes_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+            EC.element_to_be_clickable(
+                (By.XPATH, f"//a[@class='{SAVE_CHANGES_CLASS}']")))
+    driver.execute_script("arguments[0].click();", save_changes_btn)
+    # wait until you go back to main page of the course
+    WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.presence_of_element_located(
+            (By.XPATH, "//span[@class='leaderboard-text']")))
+
+    return driver
 
 def _validate_input(word_df):
     """Validates the passed dataframe.
@@ -112,25 +161,30 @@ def show_all_level_tables(driver: Remote):
         EC.presence_of_all_elements_located(
             (By.XPATH, "//a[@class='show-hide btn btn-small']")))
     for show_btn in show_btn_list:
-        show_btn.click()
+        level_element = show_btn.find_element_by_xpath('../../..')
+        try:
+            level_element.find_element_by_xpath(
+                ".//table[@class='level-things table ui-sortable']")
+        except NoSuchElementException:
+            driver.execute_script("arguments[0].click();", show_btn)
 
     return driver
 
-def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
+def delete_words_old(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
     """Deletes words from the Memrise course.
 
+    # ! duplicated
     Note: The admin user must be logged in the passed driver.
 
     Args:
         driver (selenium.webdriver.Remote): a selenium webdriver
-        word_ids (list of str or "ALL"): list of words to be deleted or "ALL" to delete 
-        all words.
+        word_ids (list of str or "ALL"): list of cell ids of words to be deleted or 
+        "ALL" to delete all words.
 
     Returns:
         selenium.webdriver.Remote: the passed driver after deleting the words
         pandas.DataFrame: a dataframe with the result of deleting each word
     """
-    # The admin user must be logged in the passed driver.
     driver.get(COURSE_EDIT_URL)
     # wait until the "save changes" appear
     WebDriverWait(driver, TIMEOUT_LIMIT).until(
@@ -138,13 +192,15 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
 
     if word_ids == "ALL":
         driver, words_df = get_all_words(driver)
-        return delete_words(driver, words_df["word"].tolist())
+        return delete_words(driver, words_df["cell id"].tolist())
     else:
         res_dict = {
             "cell id": [],  # str
             "deleted": [],  # bool
             "error": [],  # str
         }
+        if len(word_ids) == 0:
+            return driver, pd.DataFrame(res_dict)
         driver = show_all_level_tables(driver)
         for w_id in word_ids:
             res_dict["cell id"].append(w_id)
@@ -154,17 +210,18 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
                         (By.XPATH, f'//div[text()="{w_id}"]')))
                 remove_action = word_element.find_element_by_xpath(
                     '../../..//i[@data-role="remove"]')
-                remove_action.click()
-                yes_btn = driver.find_element_by_xpath(
-                    f'//a[@class="{YES_BTN_CLASS}"]')
-                yes_btn.click()
+                driver.execute_script("arguments[0].click();", remove_action)
+                yes_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, f"//a[@class='{YES_BTN_CLASS}']")))
+                driver.execute_script("arguments[0].click();", yes_btn)
                 # wait until the dialogue disappear
                 WebDriverWait(driver, TIMEOUT_LIMIT).until(
                     EC.invisibility_of_element_located(
-                        (By.XPATH, '//div[@class="modal-backdrop fade"]')))
+                        (By.XPATH, f"//div[@id='{YES_NO_MODAL_ID}']")))
                 # I verify that the word in not in the page outside the for loop
                 res_dict["deleted"].append(True)
-                res_dict["error"].append(None)
+                res_dict["error"].append(np.nan)
             except TimeoutException:
                 res_dict["deleted"].append(False)
                 res_dict["error"].append(
@@ -176,9 +233,10 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
         # deleting words doesn't need us to click on save changes (weird!)
         res_df = pd.DataFrame(res_dict)
         # verify that the words with deleted=True are not in the page
+        sleep(1)  # to make sure the words are deleted
         for w_id in res_df[res_df["deleted"]]["cell id"]:
             try:
-                WebDriverWait(driver, 0.01).until(
+                WebDriverWait(driver, WORD_SEARCH_TIME_OUT).until(
                     EC.presence_of_element_located(
                         (By.XPATH, f'//div[text()="{w_id}"]')))
                 res_df.loc[res_df["cell id"] == w_id, "deleted"] = False
@@ -189,9 +247,157 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
 
     return driver, res_df
 
-def _delete_words_from_db(driver: Remote, words: Union[List[str], Literal["ALL"]]):
-    raise NotImplementedError(
-        "Deleting all words from the database is not implemented yet")
+def _delete_one_word_from_db(driver: Remote, cell_id: str):
+    """Deletes one word from the Memrise course database.
+
+    Args:
+        driver (selenium.webdriver.Remote): A selenium webdriver.
+        cell_id (str): The ID of the word to be deleted.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after deleting the words
+        bool: indicates success or failure of deletion.
+        str: If deletion fails, the error message; otherwise, np.nan.
+    """
+    driver.get(COURSE_DB_URL)
+    # search for the word in the db and delete it
+    search_field = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.element_to_be_clickable((By.ID, "search_string")))
+    search_field.send_keys(cell_id)
+    search_btn = driver.find_element_by_xpath("//button[@class='btn-default btn-ico']")
+    search_btn.click()
+    try: 
+        thing_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+            EC.presence_of_all_elements_located(
+                (By.CLASS_NAME, "thing")))
+    except TimeoutException: 
+        return driver, False, "The word doesn't exist"
+    # I am deleting all occurrences of the word because memrise's DB allow duplicates
+    # There should be a better way to handle that
+    # because it could cover an error somewhere else, e.g. the add function.
+    # I also loop while refreshing the page so that if there are more than one page
+    # of the word, they all get deleted.
+    while thing_list:
+        driver, res_df_temp = _delete_db_page(driver)
+        driver.refresh()
+        try:
+            thing_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+                EC.presence_of_all_elements_located(
+                    (By.CLASS_NAME, "thing")))
+        except TimeoutException:
+            break
+    # if while ends, this means there is no more occurrences of the word in the DB
+    return driver, True, np.nan
+
+
+def _delete_db_page(driver: Remote):
+    """Deletes all entries in a Memrise course database page.
+
+    Note: the driver should be at the page desired to be deleted
+
+    Args:
+        driver (selenium.webdriver.Remote): A selenium webdriver.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after deleting the words
+        pandas.DataFrame: a dataframe with the result of deleting each word
+    """
+    # get the cell col dict to find cell id later
+    # save the url for the current page first
+    current_page_url = driver.current_url
+    driver, col_predicate_dict = cell_col_to_xpath_predicate(driver)
+    cell_id_predicate = col_predicate_dict["cell id"]
+    driver.get(current_page_url)
+    res_dict = {
+        "cell id": [],  # str
+        "deleted": [],  # bool
+        "error": [],  # str
+    }
+    thing_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.presence_of_all_elements_located(
+            (By.CLASS_NAME, "thing")))
+    for thing_element in thing_list:
+        cell_element = thing_element.find_element_by_xpath(
+            f".//td[{cell_id_predicate}]")
+        text_element = cell_element.find_element_by_xpath(
+            ".//div[@class='text']")
+        cell_id = text_element.text
+        res_dict["cell id"].append(cell_id)
+        try:
+            remove_action = thing_element.find_element_by_xpath(
+                ".//i[@data-role='delete']")
+            driver.execute_script("arguments[0].click();", remove_action)
+            yes_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, f"//a[@class='{YES_BTN_CLASS}']")))
+            driver.execute_script("arguments[0].click();", yes_btn)
+            # wait until the dialogue disappear
+            WebDriverWait(driver, TIMEOUT_LIMIT).until(
+                EC.invisibility_of_element_located(
+                    (By.XPATH, f"//div[@id='{YES_NO_MODAL_ID}']")))
+            res_dict["deleted"] = True
+            res_dict["error"] = np.nan
+        except Exception as e:
+            res_dict["deleted"].append(False)
+            res_dict["error"].append(str(e))
+
+    res_df = pd.DataFrame(res_dict)
+    return driver, res_df
+
+
+def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
+    """Deletes words from the Memrise course database.
+
+    Note: The admin user must be logged in the passed driver.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        word_ids (list of str or "ALL"): list of cell ids of words to be deleted or 
+        "ALL" to delete all words.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after deleting the words
+        pandas.DataFrame: a dataframe with the result of deleting each word
+    """
+    driver.get(COURSE_DB_URL)
+    # wait until the search button be clickable
+    WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.element_to_be_clickable(
+            (By.XPATH, "//button[@class='btn-default btn-ico']")))
+    if word_ids == "ALL":
+        res_df = pd.DataFrame()
+        # loop until you delete all pages of the DB.
+        try:
+            thing_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+                EC.presence_of_all_elements_located(
+                    (By.CLASS_NAME, "thing")))
+        except TimeoutException:  # empty DB
+            return driver, pd.DataFrame()
+        
+        while thing_list:
+            try:
+                driver, res_df_temp = _delete_db_page(driver)
+                res_df = pd.concat([res_df, res_df_temp]) 
+                driver.refresh()
+                thing_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+                EC.presence_of_all_elements_located(
+                    (By.CLASS_NAME, "thing")))
+            except TimeoutException:  # ? what happens if _delete_db_page raises an error?
+                break
+        return driver, res_df
+    res_dict = {
+        "cell id": [],  # str
+        "deleted": [],  # bool
+        "error": [],  # str
+    }
+    for cell_id in word_ids:
+        driver, res_bool, error_str = _delete_one_word_from_db(driver, cell_id)
+        res_dict["cell id"].append(cell_id)
+        res_dict["deleted"].append(res_bool)
+        res_dict["error"].append(error_str)
+    res_df = pd.DataFrame(res_dict)
+    return driver, res_df
+
 
 def cell_col_to_xpath_predicate(driver: Remote):
     """Returns a dictionary of column names and their xpath predicates.
@@ -233,6 +439,8 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
 
     Note: The admin user must be logged in the passed driver.
 
+    When you update a word in the level page, it also gets updated in the DB.
+
     Args:
         driver (selenium.webdriver.Remote): a selenium webdriver
         word_df (pandas.DataFrame): dataframe of words to be updated in Memrise.
@@ -242,6 +450,7 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
         pandas.DataFrame: a dataframe with the result of updating each word
     """
     word_df = _validate_input(word_df)
+    driver.get(COURSE_EDIT_URL)
     driver, column_predicate_dict = cell_col_to_xpath_predicate(driver)
     driver = show_all_level_tables(driver)
     res_dict = {
@@ -267,10 +476,14 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
                 # text_element.click()
                 # text_element.clear()  # doesn't work with div elements
                 # text_element.send_keys(row[col])  # doesn't work with div elements
-                driver.execute_script(
-                    f"arguments[0].innerText = '{row[col]}'", text_element)
+                value = str(row[col]) if pd.notna(row[col]) else ""
+                driver.execute_script(UPDATE_CELL_JAVA_SCRIPT, text_element, value)
+                # wait until you find the now updated text
+                updated = False
+                while not updated:
+                    updated = (text_element.text == value)
             res_dict["updated"].append(True)
-            res_dict["error"].append(None)
+            res_dict["error"].append(np.nan)
         except TimeoutException:
             res_dict["updated"].append(False)
             res_dict["error"].append(
@@ -280,6 +493,7 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
             res_dict["updated"].append(False)
             res_dict["error"].append(str(e))
     res_df = pd.DataFrame(res_dict)
+    driver = click_save_changes(driver)
 
     return driver, res_df
 
@@ -323,8 +537,10 @@ def get_all_words(driver):
 
         # concat
         all_words_df = pd.concat([all_words_df, table_df])
+    all_words_df["date modified"] = pd.to_datetime(all_words_df["date modified"])
+    all_words_df = all_words_df[COL_LIST].reset_index(drop=True)
 
-    return driver, all_words_df.reset_index(drop=True)
+    return driver, all_words_df
 
 
 def _table_element_to_df(table_element: WebElement):
@@ -359,56 +575,205 @@ def _table_element_to_df(table_element: WebElement):
     return table_df
 
 
+def _add_bulk(driver, level_id: str, word_df: pd.DataFrame):
+    """Adds words to a level using the bulk add feature.
+
+    The webelement to pass is the div with class="level-options".
+    
+    Passing the level options means the level is shown in the page.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        level_element (selenium.webdriver.remote.webelement.WebElement): a level element.
+            It is the div with lass='level' and @data-level-id='{level_id}'.
+        word_df (pandas.DataFrame): dataframe of words to be added to Memrise.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after adding the words
+        pandas.DataFrame: a dataframe with the result of adding each word
+    """
+    # choose add bulk words
+    # wait until the level is shown and get level options and table element
+    level_element = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.presence_of_element_located(
+            (By.XPATH, f"//div[@class='level' and @data-level-id='{level_id}']")))
+    level_options = level_element.find_element_by_xpath(
+            ".//div[@class='level-options']")
+    advanced_btn = level_options.find_element_by_xpath(
+        ".//button[contains(text(),'Advanced')]")
+    driver.execute_script("arguments[0].click();", advanced_btn)
+    bulk_add_btn = level_options.find_element_by_xpath(
+        ".//a[contains(text(),'Bulk add words')]")
+    driver.execute_script("arguments[0].click();", bulk_add_btn)
+    text_area = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.element_to_be_clickable((By.XPATH, '//textarea')))
+
+    # past the csv string of word_df
+    word_df_string = word_df.to_csv(index=False, sep="\t", header=False)
+    text_area.send_keys(word_df_string)
+
+    # click on add button
+    add_btn = driver.find_element_by_xpath("//a[text()='Add']")
+    driver.execute_script("arguments[0].click();", add_btn)
+
+    # wait until the dialogue disappear
+    WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.invisibility_of_element_located(
+            (By.XPATH, f"//div[@class='{MODAL_BACKDROP_CLASS}']")))
+    # one more second to make sure the words are added
+    sleep(1)
+    # ? save things?
+
+    # loop over the rows of word_df and check if the word is in the page
+    res_dict = {"cell id": [],  # str
+                "added": [],  # bool
+                "error": [],  # str
+                }
+    for cell_id in word_df["cell id"].values:
+        res_dict["cell id"].append(cell_id)
+        try:
+            WebDriverWait(driver, WORD_SEARCH_TIME_OUT).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, f'//div[text()="{cell_id}"]')))
+            res_dict["added"].append(True)
+            res_dict["error"].append(np.nan)
+        except TimeoutException:
+            res_dict["added"].append(False)
+            res_dict["error"].append(
+                f"TimeoutException: Word not found within {WORD_SEARCH_TIME_OUT} seconds"
+            )
+        except Exception as e:
+            res_dict["added"].append(False)
+            res_dict["error"].append(str(e))
+
+    res_df = pd.DataFrame(res_dict)
+
+    return driver, res_df
+
+
+def count_level_words(driver, level_id: str):
+    """Returns the number of words in a level.
+
+    Args:
+        level_element (selenium.webdriver.remote.webelement.WebElement): a level element.
+            It is the div with lass='level' and @data-level-id='{level_id}'.
+
+    Returns:
+        int: the number of words in a level
+    """
+    table_element = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.presence_of_element_located(
+            (By.XPATH,
+                f"//table[@class='level-things table ui-sortable' and @data-level-id='{level_id}']")))  # noqa: E501
+    level_word_count = len(table_element.find_elements_by_xpath(
+        ".//tbody/tr[@class='thing']"))
+
+    return level_word_count
+
 def add_words(driver: Remote, word_df: pd.DataFrame):
-    # it looks like after add bulk to a level, the level table collapses
-    # to work with levels views
-    # start by adding words to the empty levels
-    # if there is no empty levels, add words to the last level and so on
+    """Adds words to the Memrise course.
 
+    Note: The admin user must be logged in the passed driver.
 
+    First, it checks if there are any empty levels. If there are, it adds words to them.
+    After that, it fills the last level if it is not full. Finally, it creates new
+    levels as needed.
 
-    # The admin user must be logged in the passed driver.
-    word_df = _validate_input(word_df)  # only valid (have FR and EN columns)
-    word_notion_list = word_df["French"].tolist()
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        word_df (pandas.DataFrame): dataframe of words to be added to Memrise.
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after adding the words
+        pandas.DataFrame: a dataframe with the result of adding each word
+    """
+    word_df = _validate_input(word_df)  # only valid
     if word_df.empty:
-        return driver, word_notion_list, []
-    else:
-        # go to the edit page
-        driver.get(COURSE_EDIT_URL)
-
-        # choose add bulk words
-        advanced_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, '//button[contains(text(),"Advanced")]')))
-        advanced_btn.click()
-        bulk_add_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, '//a[contains(text(),"Bulk add words")]')))
-        bulk_add_btn.click()
-        text_area = WebDriverWait(driver, TIMEOUT_LIMIT).until(
-            EC.element_to_be_clickable((By.XPATH, '//textarea')))
-
-        # past the csv string of word_df
-        word_df_string = word_df.to_csv(index=False, sep="\t", header=False)
-        text_area.send_keys(word_df_string)
-
-        # click on add button
-        add_btn = driver.find_element_by_xpath("//a[text()='Add']")
-        add_btn.click()
-
-        # refresh page and check if all words are added
-        driver.refresh()
-        # TODO: to check the words, loop over the rows of word_df and check if the
-        # word is in the page
-
-        # save changes
-        save_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
-            EC.element_to_be_clickable((By.XPATH, f"//a[@class='{SAVE_CHANGES_CLASS}']")))
-        save_btn.click()
-
-        # wait until the course page load (exit the edit mode):
-        # span with class="leaderboard-text"
-        WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        return driver, pd.DataFrame()
+    # go to the edit page
+    driver.get(COURSE_EDIT_URL)
+    # loop over levels
+    # if the level is empty, add words to it
+    # TODO: raise an error saying there is no levels in the course
+    level_collapsed_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.presence_of_all_elements_located(
+            (By.XPATH, "//div[@class='level collapsed']")))
+    level_id_list = [
+        level_collapsed_element.get_attribute("data-level-id")
+        for level_collapsed_element in level_collapsed_list
+    ]
+    i = 0
+    res_df = pd.DataFrame()
+    for level_id in level_id_list:
+        level_collapsed_element = WebDriverWait(driver, TIMEOUT_LIMIT).until(
             EC.presence_of_element_located(
-                (By.CLASS_NAME, "leaderboard-text")))
-        
+                (By.XPATH,
+                 f"//div[@class='level collapsed' and @data-level-id='{level_id}']")))
+        show_btn = level_collapsed_element.find_element_by_xpath(
+            ".//a[@class='show-hide btn btn-small']")
+        driver.execute_script("arguments[0].click();", show_btn)
+        level_word_count = count_level_words(driver, level_id)
+        # if the level is empty, add words to it
+        if level_word_count == 0 and i < len(word_df):  # only if there are more words
+            driver, tmp_res_df = _add_bulk(
+                driver, level_id, word_df.iloc[i:i+LEVEL_WORD_LIMIT])
+            level_word_count += len(tmp_res_df[tmp_res_df["added"]])
+            i += LEVEL_WORD_LIMIT
+            res_df = pd.concat([res_df, tmp_res_df])
+
+    # here, level_element is the last level
+    # add words to it if it is not full
+    if len(level_id_list) > 0:  # so level_id is defined
+        if level_word_count < LEVEL_WORD_LIMIT and i < len(word_df):
+            n_words_to_add = LEVEL_WORD_LIMIT - level_word_count
+            driver, tmp_res_df = _add_bulk(
+                driver, level_id, word_df.iloc[i:i+n_words_to_add])
+            i += n_words_to_add
+            res_df = pd.concat([res_df, tmp_res_df])
+    # create new levels if needed
+    word_df = word_df.iloc[i:] if i < len(word_df) else pd.DataFrame()
+    # cut the remaining words LEVEL_WORD_LIMIT words per level and create new levels
+    for i in range(0, len(word_df), LEVEL_WORD_LIMIT):
+        batch_df = word_df.iloc[i:i+LEVEL_WORD_LIMIT]
+        # create a new level
+        driver = create_new_level(driver)
+        # the page will refresh and the new level will be the only level not collapsed
+        # wait until the page reload (the button is not visible)
+        WebDriverWait(driver, TIMEOUT_LIMIT).until(
+            EC.invisibility_of_element_located(
+                (By.XPATH,
+                 f"//a[@data-role='level-add' and contains(text(),'{DB_NAME}')]")))
+        # get level options
+        level_element = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//div[@class='level']")))
+        level_id = level_element.get_attribute("data-level-id")
+        # add words to the new level
+        driver, tmp_res_df = _add_bulk(driver, level_id, batch_df)
+        res_df = pd.concat([res_df, tmp_res_df])
+
+    return driver, res_df
+
+def create_new_level(driver: Remote):
+    """Creates a new level in the Memrise course.
+
+    Note: The admin user must be logged in the passed driver.
+    Note: The driver must be in the edit page.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after creating a new level
+    """
+    add_level_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.element_to_be_clickable(
+            (By.XPATH, "//button[@class='dropdown-toggle btn btn-icos-active']")))
+    driver.execute_script("arguments[0].click();", add_level_btn)
+    add_level_btn = WebDriverWait(driver, TIMEOUT_LIMIT).until(
+        EC.element_to_be_clickable(
+            (By.XPATH,
+                f"//a[@data-role='level-add' and contains(text(),'{DB_NAME}')]")))
+    driver.execute_script("arguments[0].click();", add_level_btn)
+
+    return driver

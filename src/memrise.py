@@ -32,13 +32,8 @@ YES_BTN_CLASS = "btn btn-primary btn-yes"
 SAVE_CHANGES_CLASS = "btn btn-success"
 MODAL_BACKDROP_CLASS = "modal-backdrop fade"
 YES_NO_MODAL_ID = "modal-yesno"
-UPDATE_CELL_JAVA_SCRIPT = """
-var element = arguments[0];
-var value = arguments[1];
-element.textContent = value;
-var event = new KeyboardEvent('keydown', {'key':'Enter'});
-element.dispatchEvent(event);
-"""
+UPDATE_CELL_JAVA_SCRIPT = """arguments[0].value = arguments[1];arguments[0].blur();"""
+
 
 def create_driver(headless=True):
     """Creates a Firefox webdriver from Selenium
@@ -126,7 +121,7 @@ def click_save_changes(driver: Remote):
 
     return driver
 
-def _validate_input(word_df):
+def validate_input(word_df):
     """Validates the passed dataframe.
 
     Make sure that:
@@ -139,6 +134,13 @@ def _validate_input(word_df):
     Returns:
         pandas.DataFrame: validated dataframe.
     """
+    # make sure it is a dataframe
+    if isinstance(word_df, pd.Series): # convert to a dataframe
+        word_df = word_df.to_frame().T
+    # this is not needed if I enforce the type of args in all the code.
+    if not isinstance(word_df, pd.DataFrame):
+        raise ValueError("word_df must be a pandas dataframe")
+
     # all column exist and in the right order
     # French, English, and date modified columns have no nas
     # TODO: to be more verbose about the errors
@@ -293,7 +295,9 @@ def _delete_one_word_from_db(driver: Remote, cell_id: str):
 def _delete_db_page(driver: Remote):
     """Deletes all entries in a Memrise course database page.
 
-    Note: the driver should be at the page desired to be deleted
+    Note: the driver should be at the page desired to be deleted and it should contain
+    at least one entry.
+    # ? should the function handle empty pages? I think so.
 
     Args:
         driver (selenium.webdriver.Remote): A selenium webdriver.
@@ -364,15 +368,20 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
     WebDriverWait(driver, TIMEOUT_LIMIT).until(
         EC.element_to_be_clickable(
             (By.XPATH, "//button[@class='btn-default btn-ico']")))
+    res_dict = {
+        "cell id": [],  # str
+        "deleted": [],  # bool
+        "error": [],  # str
+    }
     if word_ids == "ALL":
-        res_df = pd.DataFrame()
+        res_df = pd.DataFrame(res_dict)
         # loop until you delete all pages of the DB.
         try:
             thing_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
                 EC.presence_of_all_elements_located(
                     (By.CLASS_NAME, "thing")))
         except TimeoutException:  # empty DB
-            return driver, pd.DataFrame()
+            return driver, res_df
         
         while thing_list:
             try:
@@ -385,11 +394,7 @@ def delete_words(driver: Remote, word_ids: Union[List[str], Literal["ALL"]]):
             except TimeoutException:  # ? what happens if _delete_db_page raises an error?
                 break
         return driver, res_df
-    res_dict = {
-        "cell id": [],  # str
-        "deleted": [],  # bool
-        "error": [],  # str
-    }
+    
     for cell_id in word_ids:
         driver, res_bool, error_str = _delete_one_word_from_db(driver, cell_id)
         res_dict["cell id"].append(cell_id)
@@ -434,6 +439,41 @@ def cell_col_to_xpath_predicate(driver: Remote):
 
     return driver, column_predicate_dict
 
+def _update_cell(driver: Remote, cell_element: WebElement, new_value:str):
+    """Updates a cell with a new value.
+
+    Note: The admin user must be logged in the passed driver.
+
+    When you update a cell in the level page, it also gets updated in the DB.
+
+    Args:
+        driver (selenium.webdriver.Remote): a selenium webdriver
+        cell_element (selenium.webdriver.remote.webelement.WebElement): a cell element
+        new_value (str): new value of the cell
+
+    Returns:
+        selenium.webdriver.Remote: the passed driver after updating the cell
+    
+    """
+    text_element = cell_element.find_element_by_xpath(
+        ".//div[@class='text']")
+    driver.execute_script("arguments[0].click();", text_element)
+    # wait for the input element, not the best way wait but ...
+    # I can use WebDriverWait when I update the function to use row id and column id 
+    # and type instead of xpaths
+    sleep(0.001)
+    input_element = text_element.find_element_by_xpath(
+        ".//input[@type='text']")
+    
+    driver.execute_script(UPDATE_CELL_JAVA_SCRIPT, input_element, new_value)
+    # wait until you find the now updated text
+    updated = False
+    while not updated:
+        updated = (text_element.text == new_value)
+
+    return driver
+
+
 def update_words(driver: Remote, word_df: pd.DataFrame):
     """Updates words in the Memrise course.
 
@@ -449,7 +489,7 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
         selenium.webdriver.Remote: the passed driver after updating the words
         pandas.DataFrame: a dataframe with the result of updating each word
     """
-    word_df = _validate_input(word_df)
+    word_df = validate_input(word_df)
     driver.get(COURSE_EDIT_URL)
     driver, column_predicate_dict = cell_col_to_xpath_predicate(driver)
     driver = show_all_level_tables(driver)
@@ -468,20 +508,11 @@ def update_words(driver: Remote, word_df: pd.DataFrame):
             for col in word_df.columns:
                 if col=="cell id":
                     continue
+                value = str(row[col]) if pd.notna(row[col]) else ""
                 xpath_predicate = column_predicate_dict[col]
                 cell_element = row_element.find_element_by_xpath(
                     f".//td[{xpath_predicate}]")
-                text_element = cell_element.find_element_by_xpath(
-                    ".//div[@class='text']")
-                # text_element.click()
-                # text_element.clear()  # doesn't work with div elements
-                # text_element.send_keys(row[col])  # doesn't work with div elements
-                value = str(row[col]) if pd.notna(row[col]) else ""
-                driver.execute_script(UPDATE_CELL_JAVA_SCRIPT, text_element, value)
-                # wait until you find the now updated text
-                updated = False
-                while not updated:
-                    updated = (text_element.text == value)
+                driver = _update_cell(driver, cell_element, value)
             res_dict["updated"].append(True)
             res_dict["error"].append(np.nan)
         except TimeoutException:
@@ -517,7 +548,7 @@ def get_all_words(driver):
     table_list = WebDriverWait(driver, TIMEOUT_LIMIT).until(
         EC.presence_of_all_elements_located(
             (By.XPATH, "//table[@class='level-things table ui-sortable']")))
-    all_words_df = pd.DataFrame()
+    all_words_df = pd.DataFrame({}, columns=COL_LIST)
     for table_element in table_list:
         # get its name
         # from its grandparent, concat
@@ -536,8 +567,13 @@ def get_all_words(driver):
         table_df["level"] = level_name
 
         # concat
-        all_words_df = pd.concat([all_words_df, table_df])
+        if not table_df.empty:
+            table_df = table_df[COL_LIST]
+            all_words_df = pd.concat([all_words_df, table_df])
+    # check dtypes and columns order and index
     all_words_df["date modified"] = pd.to_datetime(all_words_df["date modified"])
+    columns_with_all_na = all_words_df.columns[all_words_df.isna().all()]
+    all_words_df = all_words_df.astype({col: np.float64 for col in columns_with_all_na})
     all_words_df = all_words_df[COL_LIST].reset_index(drop=True)
 
     return driver, all_words_df
@@ -687,9 +723,14 @@ def add_words(driver: Remote, word_df: pd.DataFrame):
         selenium.webdriver.Remote: the passed driver after adding the words
         pandas.DataFrame: a dataframe with the result of adding each word
     """
-    word_df = _validate_input(word_df)  # only valid
+    word_df = validate_input(word_df)  # only valid
     if word_df.empty:
-        return driver, pd.DataFrame()
+        res_df = pd.DataFrame({
+            "cell id": [],  # str
+            "added": [],  # bool
+            "error": [],  # str
+        })
+        return driver, res_df
     # go to the edit page
     driver.get(COURSE_EDIT_URL)
     # loop over levels

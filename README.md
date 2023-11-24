@@ -23,7 +23,7 @@ Notion is easier to use and had more features. For example, I can add much more 
 3. Clone this repository
 4. Follow the [requirements](#requirements) section below
 5. Change the constants in `src/constants`.
-6. Run `python notion2memrise.py` from the root directory.
+6. Run `notion2memrise.py` from the root directory.
 
 # How does it work
 ### Notion
@@ -39,8 +39,6 @@ We use their API to query the database. An extra piece of information we get fro
 - [x] ~~create a pandas dataframe from the database~~
 - [x] ~~clean the dataframe~~
 - [x] ~~handle duplicates in the notion database~~
-- [ ] reorganise the constants in the code
-- [ ] testing modules for the above
 
 ### Memrise
 Memrise does not offer an API, so I went to the old goody Selenium to control the course. Therefore, this solution won't scale well, but it does the job for me.
@@ -50,8 +48,6 @@ Do I work with the levels page or the database page
 - [x] ~~handle words deleted from the notion database~~
 - [x] ~~handle words that already exist but have been modified~~
 - [x] ~~add words to the course~~
-- [ ] reorganise the constants in the code
-- [ ] testing modules for the above
 
 # Requirements
 - create a Notion integration in your workspace. Follow these [instructions](https://developers.notion.com/docs/create-a-notion-integration).
@@ -70,14 +66,16 @@ conda activate notion2memrise
 
 # Testing 
 
-Well... this is important, but in the meantime, I would rather spend my time learning French :) ... but I will come back to it.
+I added tests for the function that governs most of the script, but I want to add more unit tests, but in the meantime, I would rather spend my time learning French :) ... but I will come back to it.
 
 # Limitations
-- Words that get deleted from the levels tab on Memrise will not be deleted from the database on Memrise.
 - Many will come as I use the code more and more.
 
 # improvements
+- Add more verbose logging when running the program.
 - Get pronunciation of words from WordReference to Memrise.
-- Make sure to delete words from database on Memrise as well.
 - Function to create the course on Memrise in complex mode.
 - Is it possible to convert these scripts to a Notion integration?
+- change `update_words` and `_update_cell` to use row id and column id and type instead of complex relative xpaths. 
+- reorganise the constants in the code.
+- complete testing modules for everything.

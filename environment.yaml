@@ -2,13 +2,13 @@ name: notion2memrise
 channels:
   - defaults
 dependencies:
-  - selenium
-  - requests
-  - pandas
+  - selenium=3.141.0
+  - requests=2.31.0
+  - pandas=2.1.1
   - python=3.9
-  - ipykernel
-  - beautifulsoup4
-  - lxml
+  - beautifulsoup4=4.12.2
+  - lxml=4.9.3
+  - pytest=7.4.0
 variables:
   NOTION_SECRET:  # Notion API secret
   MEMRISE_EMAIL: 

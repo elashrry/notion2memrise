@@ -73,6 +73,7 @@ I added tests for the function that governs most of the script, but I want to ad
 
 # improvements
 - Add more verbose logging when running the program.
+- Divide `memrise.py` into separate files (and maybe build them as objects).
 - Get pronunciation of words from WordReference to Memrise.
 - Function to create the course on Memrise in complex mode.
 - Is it possible to convert these scripts to a Notion integration?

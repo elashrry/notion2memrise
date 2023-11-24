@@ -571,9 +571,9 @@ def get_all_words(driver):
             table_df = table_df[COL_LIST]
             all_words_df = pd.concat([all_words_df, table_df])
     # check dtypes and columns order and index
-    all_words_df["date modified"] = pd.to_datetime(all_words_df["date modified"])
     columns_with_all_na = all_words_df.columns[all_words_df.isna().all()]
     all_words_df = all_words_df.astype({col: np.float64 for col in columns_with_all_na})
+    all_words_df["date modified"] = pd.to_datetime(all_words_df["date modified"])
     all_words_df = all_words_df[COL_LIST].reset_index(drop=True)
 
     return driver, all_words_df

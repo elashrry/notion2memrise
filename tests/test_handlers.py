@@ -6,10 +6,7 @@ from pandas.testing import assert_frame_equal
 from src import handlers as hr
 from src import memrise as mem
 from src.constants import MEMRISE_EMAIL, MEMRISE_PASSWORD
-
-mem.COURSE_EDIT_URL = "https://app.memrise.com/course/6515074/testing/edit/"
-mem.COURSE_DB_URL = "https://app.memrise.com/course/6515074/testing/edit/database/7570903/"  # noqa: E501
-
+from tests.constants import COURSE_DB_URL, COURSE_EDIT_URL, DB_NAME, LEVEL_WORD_LIMIT
 
 def read_data():
     df = pd.read_csv("tests/data/test.csv")
@@ -20,18 +17,19 @@ def read_data():
 def driver():
     driver = mem.create_driver()
     driver = mem.sign_in(driver, MEMRISE_EMAIL, MEMRISE_PASSWORD)
-    driver = mem.agree_to_cookies(driver)
-    driver, deleted_df = mem.delete_words(driver, "ALL")
+    # driver = mem.agree_to_cookies(driver)
+    driver, deleted_df = mem.delete_words(driver, COURSE_EDIT_URL, COURSE_DB_URL, "ALL")
     yield driver
 
-    driver, deleted_df = mem.delete_words(driver, "ALL")
+    driver, deleted_df = mem.delete_words(driver, COURSE_EDIT_URL, COURSE_DB_URL, "ALL")
     driver.quit()
 
 def test_handle_new_from_notion(driver):
     df = read_data()
-    driver, added_res_df = hr.handle_new_from_notion(driver, df)
+    driver, added_res_df = hr.handle_new_from_notion(
+        driver, df, COURSE_EDIT_URL, DB_NAME, LEVEL_WORD_LIMIT)
 
-    driver, memrise_df = mem.get_all_words(driver)
+    driver, memrise_df = mem.get_all_words(driver, COURSE_EDIT_URL)
     memrise_df = memrise_df.sort_values(by="cell id").reset_index(drop=True)
     df_valid = mem.validate_input(df)
     df_valid = df_valid.sort_values(by="cell id").reset_index(drop=True)
@@ -43,15 +41,17 @@ def test_handle_updated_from_notion(driver):
     to_update_idx = np.random.choice(df.index, size=2, replace=False)
     # add it to memrise
     to_add_df = df.loc[to_update_idx].copy()
-    driver, added_res_df = hr.handle_new_from_notion(driver, to_add_df)
-    # update it in df 
+    driver, added_res_df = hr.handle_new_from_notion(
+        driver, to_add_df, COURSE_EDIT_URL, DB_NAME, LEVEL_WORD_LIMIT)
+    # update it in df
     df.loc[to_update_idx, "French"] = "updated-" + df.loc[
         to_update_idx, "French"]
     # add again to memrise
     updated_df = df.loc[to_update_idx].copy()
-    driver, update_res_df = hr.handle_updated_from_notion(driver, updated_df)
-    
-    # test 
+    driver, update_res_df = hr.handle_updated_from_notion(
+        driver, updated_df, COURSE_EDIT_URL)
+
+    # test
     expected_update_res_df = pd.DataFrame({
         "French": updated_df["French"].to_list(),
         "cell id": updated_df["cell id"].to_list(),
@@ -62,7 +62,7 @@ def test_handle_updated_from_notion(driver):
     assert_frame_equal(expected_update_res_df, update_res_df)
 
     # check the words in the course 
-    driver, memrise_df = mem.get_all_words(driver)
+    driver, memrise_df = mem.get_all_words(driver, COURSE_EDIT_URL)
     memrise_df = memrise_df.sort_values(by="cell id").reset_index(drop=True)
     # make sure the input dtypes and column order are correct
     updated_df_valid = mem.validate_input(updated_df)
@@ -76,9 +76,6 @@ def test_handle_updated_from_notion(driver):
 def test_notion2memrise(driver):
     df = read_data()
     most_recent = df["date modified"].max()
-    driver = mem.create_driver()
-    driver = mem.sign_in(driver, MEMRISE_EMAIL, MEMRISE_PASSWORD)
-    driver = mem.agree_to_cookies(driver)
 
     to_del_idx, to_update_idx = np.random.choice(df.index, 2, replace=False)
     # add them to memrise
@@ -87,7 +84,8 @@ def test_notion2memrise(driver):
         "2000-01-01", utc=True)
 
     to_add_df = df.loc[[to_del_idx, to_update_idx]].copy()
-    driver, added_res_df = hr.handle_new_from_notion(driver, to_add_df)
+    driver, added_res_df = hr.handle_new_from_notion(
+        driver, to_add_df, COURSE_EDIT_URL, DB_NAME, LEVEL_WORD_LIMIT)
 
     # delete one from df
     df = df.drop(index=[to_del_idx])
@@ -95,9 +93,10 @@ def test_notion2memrise(driver):
     df.loc[to_update_idx, "French"] = "updated-" + df.loc[
         to_update_idx, "French"]
     df.loc[to_update_idx, "date modified"] = most_recent
-    driver = hr.notion2memrise(driver, df)
+    driver = hr.notion2memrise(
+        driver, df, COURSE_EDIT_URL, COURSE_DB_URL, DB_NAME, LEVEL_WORD_LIMIT)
 
-    driver, memrise_df = mem.get_all_words(driver)
+    driver, memrise_df = mem.get_all_words(driver, COURSE_EDIT_URL)
     memrise_df = memrise_df.sort_values(by="cell id").reset_index(drop=True)
 
     df_valid = mem.validate_input(df)

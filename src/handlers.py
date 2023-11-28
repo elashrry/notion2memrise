@@ -9,7 +9,14 @@ from src import utils as ut
 
 COL_ORDER_LIST = ["French", "cell id", "action", "success", "error"]
 
-def notion2memrise(driver: Remote, notion_df: pd.DataFrame):
+def notion2memrise(
+        driver: Remote,
+        notion_df: pd.DataFrame,
+        course_edit_url: str,
+        course_db_url: str,
+        db_name: str,
+        level_word_limit: int
+        ):
     """Handles the data from Notion and Memrise.
 
     Creates a Selenium driver, signs in to Memrise, gets all the words from Memrise,
@@ -20,6 +27,11 @@ def notion2memrise(driver: Remote, notion_df: pd.DataFrame):
     Args:
         driver (selenium.webdriver.Remote): driver of the browser.
         notion_df (pandas.DataFrame): dataframe of the entries in the Notion database.
+        course_edit_url (str): url of the edit page of the course.
+        course_db_url (str): url of the database page of the course.
+        db_name (str): name of the database of the course on memrise.
+            This is found when you click on Databases tab in the edit page. 
+        level_word_limit (int): number of words per level.
 
     Returns:
         selenium.webdriver.Remote: the passed driver after the words are added, updated,
@@ -40,7 +52,7 @@ def notion2memrise(driver: Remote, notion_df: pd.DataFrame):
     global_res_df = pd.concat([global_res_df, duplicate_res_df])
 
     # read words from memrise
-    driver, memrise_df = mem.get_all_words(driver)
+    driver, memrise_df = mem.get_all_words(driver, course_edit_url)
 
     if not memrise_df.empty:
         memrise_df.sort_values(by="date modified", inplace=True, ascending=False)
@@ -49,22 +61,22 @@ def notion2memrise(driver: Remote, notion_df: pd.DataFrame):
         # handle words deleted from notion
         deleted_from_notion_df = ut.anti_join(memrise_df, notion_df, "cell id")
         driver, delete_res_df = handle_deleted_from_notion(
-            driver, deleted_from_notion_df)
+            driver, deleted_from_notion_df, course_db_url, course_edit_url)
         global_res_df = pd.concat([global_res_df, delete_res_df])
         # get new words from notion
         notion_df = notion_df[notion_df["date modified"] > memrise_most_recent]
         # handle words that were already on memrise and got updated on notion
         update_from_notion_df = ut.semi_join(notion_df, memrise_df, "cell id")
         driver, updated_res_df = handle_updated_from_notion(
-            driver, update_from_notion_df)
+            driver, update_from_notion_df, course_edit_url)
         global_res_df = pd.concat([global_res_df, updated_res_df])
-        # driver = mem.click_save_changes(driver)
         # update notion_df to only contain the words that are not in memrise
         notion_df = notion_df[np.logical_not(
             notion_df["cell id"].isin(update_from_notion_df["cell id"]))]
 
     # handle new words from notion, drop the ones that already got updated
-    driver, added_res_df = handle_new_from_notion(driver, notion_df)
+    driver, added_res_df = handle_new_from_notion(
+        driver, notion_df, course_edit_url,db_name, level_word_limit)
     global_res_df = pd.concat([global_res_df, added_res_df])
     now_timestamp = pd.to_datetime("now").strftime("%Y-%m-%d %H:%M:%S")
     global_res_df.to_csv(f"logs/results_{now_timestamp}.csv", index=False)
@@ -110,7 +122,12 @@ def handle_notion_duplicates(notion_df: pd.DataFrame):
 
     return notion_df, duplicate_res_df[COL_ORDER_LIST]
 
-def handle_deleted_from_notion(driver: Remote, deleted_from_notion_df: pd.DataFrame):
+def handle_deleted_from_notion(
+        driver: Remote,
+        deleted_from_notion_df: pd.DataFrame,
+        course_db_url: str,
+        course_edit_url,
+        ):
     """Handles the words deleted from Notion.
 
     Args:
@@ -128,13 +145,15 @@ def handle_deleted_from_notion(driver: Remote, deleted_from_notion_df: pd.DataFr
             - success: True if the word was deleted successfully, False otherwise.
             - error: error message if the word was not deleted successfully, NaN
             otherwise.
+        course_db_url (str): url of the database page of the course.
+        course_edit_url (str): url of the edit page of the course.
     """
     deleted_from_notion_df = mem.validate_input(deleted_from_notion_df)
     if deleted_from_notion_df.empty:
         return driver, pd.DataFrame(columns=COL_ORDER_LIST)
 
     driver, delete_res_df = mem.delete_words(
-        driver, deleted_from_notion_df["cell id"].tolist())
+        driver, course_edit_url, course_db_url, deleted_from_notion_df["cell id"].tolist())
     delete_res_df = delete_res_df.merge(
         deleted_from_notion_df, on="cell id", how="left")
     deleted_words_df = delete_res_df[delete_res_df["deleted"]]
@@ -150,11 +169,10 @@ def handle_deleted_from_notion(driver: Remote, deleted_from_notion_df: pd.DataFr
     delete_res_df = delete_res_df[["French", "cell id", "deleted", "error"]]
     delete_res_df["action"] = "delete"
     delete_res_df.rename(columns={"deleted": "success"}, inplace=True)
-    driver = mem.click_save_changes(driver)
 
     return driver, delete_res_df[COL_ORDER_LIST]
 
-def handle_updated_from_notion(driver: Remote, update_from_notion_df: pd.DataFrame):
+def handle_updated_from_notion(driver: Remote, update_from_notion_df: pd.DataFrame, course_edit_url: str):
     """Handles the words that were already on Memrise and got updated on Notion.
 
     Args:
@@ -178,7 +196,8 @@ def handle_updated_from_notion(driver: Remote, update_from_notion_df: pd.DataFra
     update_from_notion_df = mem.validate_input(update_from_notion_df)
     if update_from_notion_df.empty:
         return driver, pd.DataFrame(columns=COL_ORDER_LIST)
-    driver, updated_res_df = mem.update_words(driver, update_from_notion_df)
+    driver, updated_res_df = mem.update_words(
+        driver, course_edit_url, update_from_notion_df)
     updated_res_df = updated_res_df.merge(
         update_from_notion_df, on="cell id", how="left")
     updated_words_df = updated_res_df[updated_res_df["updated"]]
@@ -193,11 +212,16 @@ def handle_updated_from_notion(driver: Remote, update_from_notion_df: pd.DataFra
     updated_res_df = updated_res_df[["French", "cell id", "updated", "error"]]
     updated_res_df["action"] = "update"
     updated_res_df.rename(columns={"updated": "success"}, inplace=True)
-    # driver = mem.click_save_changes(driver)
 
     return driver, updated_res_df[COL_ORDER_LIST]
 
-def handle_new_from_notion(driver: Remote, new_from_notion_df: pd.DataFrame):
+def handle_new_from_notion(
+        driver: Remote,
+        new_from_notion_df: pd.DataFrame,
+        course_edit_url: str,
+        db_name: str,
+        level_word_limit: int,
+        ):
     """Handles the new words from Notion.
 
     Args:
@@ -218,7 +242,8 @@ def handle_new_from_notion(driver: Remote, new_from_notion_df: pd.DataFrame):
     new_from_notion_df = mem.validate_input(new_from_notion_df)
     if new_from_notion_df.empty:
         return driver, pd.DataFrame(columns=COL_ORDER_LIST)
-    driver, added_res_df = mem.add_words(driver, new_from_notion_df)
+    driver, added_res_df = mem.add_words(
+        driver, course_edit_url, db_name, new_from_notion_df, level_word_limit)
     added_res_df = added_res_df.merge(new_from_notion_df, on="cell id", how="left")
     added_words_df = added_res_df[added_res_df["added"]]
     not_added_words_df = added_res_df[np.logical_not(added_res_df["added"])]
@@ -232,6 +257,5 @@ def handle_new_from_notion(driver: Remote, new_from_notion_df: pd.DataFrame):
     added_res_df = added_res_df[["French", "cell id", "added", "error"]]
     added_res_df["action"] = "add"
     added_res_df.rename(columns={"added": "success"}, inplace=True)
-    driver = mem.click_save_changes(driver)
 
     return driver, added_res_df[COL_ORDER_LIST]

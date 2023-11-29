@@ -59,24 +59,6 @@ def sign_in(driver: Remote, email: str, password: str):
 
     return driver
 
-# def agree_to_cookies(driver: Remote):
-#     """Agrees to cookies.
-
-#     Args:
-#         driver (selenium.webdriver.Remote): a selenium webdriver
-
-#     Returns:
-#         selenium.webdriver.Remote: the passed driver after agreeing to cookies
-#     """
-#     driver.get(COURSE_EDIT_URL)
-#     # wait until the cookies dialogue appears
-#     agree_btn = WebDriverWait(driver, cont.TIMEOUT_LIMIT).until(
-#         EC.presence_of_element_located(
-#             (By.XPATH, "//a[contains(text(),'I agree')]")))
-#     agree_btn.click()
-
-#     return driver
-
 def click_save_changes(driver: Remote, course_edit_url: str):
     """Clicks on the save changes button.
 

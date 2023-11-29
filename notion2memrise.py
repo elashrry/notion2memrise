@@ -8,7 +8,6 @@ if __name__ == "__main__":
     notion_df = notion.get_data_from_notion(const.NOTION_DATABASE_ID)
     driver = mem.create_driver()
     driver = mem.sign_in(driver, const.MEMRISE_EMAIL, const.MEMRISE_PASSWORD)
-    driver = mem.agree_to_cookies(driver)
     driver = h.notion2memrise(
         driver,
         notion_df,
